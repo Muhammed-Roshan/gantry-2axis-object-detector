@@ -1,0 +1,131 @@
+// Motor 1 - X-axis
+#define dirX 2
+#define stepX 3
+#define enableX 4
+
+// Motor 2 - Y-axis
+#define dirY 5
+#define stepY 6
+#define enableY 7
+
+const float stepsPerPixel = 153.8;  // Adjust based on your motor specs (e.g., 200 steps/rev & 2mm/rev => 100 steps/mm)
+String inputString = "";
+bool newData = false;
+
+// Store last moved steps for returning to origin
+long lastStepsX = 0;
+long lastStepsY = 0;
+
+const int maxX = 430; // Maximum X-axis limit
+const int maxY = 350; // Maximum Y-axis limit
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(dirX, OUTPUT);
+  pinMode(stepX, OUTPUT);
+  pinMode(enableX, OUTPUT);
+
+  pinMode(dirY, OUTPUT);
+  pinMode(stepY, OUTPUT);
+  pinMode(enableY, OUTPUT);
+
+  digitalWrite(enableX, LOW);  // Enable X-axis driver
+  digitalWrite(enableY, LOW);  // Enable Y-axis driver
+}
+
+void loop() {
+  if (newData) {
+    int commaIndex = inputString.indexOf(',');
+    if (commaIndex > 0) {
+      int targetX = inputString.substring(0, commaIndex).toInt();
+      int targetY = inputString.substring(commaIndex + 1).toInt();
+
+      // Check if coordinates exceed the limits
+      if (targetX <= maxX && targetY <= maxY) {
+        long stepsX = targetX * stepsPerPixel;  // Convert targetX to steps
+        long stepsY = targetY * stepsPerPixel;  // Convert targetY to steps
+
+        // Store for return
+        lastStepsX = stepsX;
+        lastStepsY = stepsY;
+
+        // Move to target
+        moveMotors(stepsX, stepsY);
+
+        // Wait before returning
+        delay(500);
+
+        // Return to origin (reverse steps)
+        moveMotors(-stepsX, -stepsY);
+
+        // Notify Python (move complete and returned to origin)
+        Serial.println("DONE");
+      } else {
+        // Stop motors if coordinates exceed limits
+        stopMotors();
+        Serial.println("Coordinates out of range, motors stopped");
+      }
+    }
+    inputString = "";
+    newData = false;
+  }
+}
+
+void serialEvent() {
+  while (Serial.available()) {
+    char inChar = (char)Serial.read();
+    if (inChar == '\n') {
+      newData = true;
+    } else {
+      inputString += inChar;
+    }
+  }
+}
+
+void moveMotors(long targetStepsX, long targetStepsY) {
+  // Delay before motion starts
+  delay(500);  // 500 milliseconds pause before movement
+
+  digitalWrite(dirX, targetStepsX >= 0 ? HIGH : LOW);
+  digitalWrite(dirY, targetStepsY >= 0 ? HIGH : LOW);
+
+  targetStepsX = abs(targetStepsX);
+  targetStepsY = abs(targetStepsY);
+
+  long fastStepsX = targetStepsX * 0.85;
+  long fastStepsY = targetStepsY * 0.85;
+  long slowStepsX = targetStepsX - fastStepsX;
+  long slowStepsY = targetStepsY - fastStepsY;
+
+  // Fast phase
+  stepBothMotors(fastStepsX, fastStepsY, 800);
+
+  // Slow phase
+  stepBothMotors(slowStepsX, slowStepsY, 800);
+}
+
+void stepBothMotors(long stepsX, long stepsY, int delayMicros) {
+  long x = 0, y = 0;
+  while (x < stepsX || y < stepsY) {
+    if (x < stepsX) {
+      digitalWrite(stepX, HIGH);
+      delayMicroseconds(delayMicros);
+      digitalWrite(stepX, LOW);
+      delayMicroseconds(delayMicros);
+      x++;
+    }
+    if (y < stepsY) {
+      digitalWrite(stepY, HIGH);
+      delayMicroseconds(delayMicros);
+      digitalWrite(stepY, LOW);
+      delayMicroseconds(delayMicros);
+      y++;
+    }
+  }
+}
+
+void stopMotors() {
+  digitalWrite(enableX, HIGH);  // Disable X-axis driver (stop motor)
+  digitalWrite(enableY, HIGH);  // Disable Y-axis driver (stop motor)
+}
